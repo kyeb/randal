@@ -1,6 +1,6 @@
 use axum::{
     http::StatusCode,
-    response::IntoResponse,
+    response::{Html, IntoResponse},
     routing::{get, post},
     Extension, Router,
 };
@@ -56,8 +56,8 @@ fn sensor_loop(db: Db) {
     }
 }
 
-async fn root() -> &'static str {
-    "randal is alive!"
+async fn root() -> Html<&'static str> {
+    Html(include_str!("index.html"))
 }
 
 async fn handle_404() -> impl IntoResponse {
