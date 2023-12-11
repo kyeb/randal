@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+axum = "0.7.2"
 rppal = "0.15.0"
+sled = "0.34.7"
+tokio = { version = "1.35.0", features = ["full"] }
