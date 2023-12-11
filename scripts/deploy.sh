@@ -3,8 +3,8 @@ set -e
 
 cargo build --release
 
-ssh pi "sudo /bin/systemctl stop randal"
+ssh pi "sudo systemctl stop randal"
 
-scp target/armv7-unknown-linux-musleabihf/release/randal pi:/srv
+scp ./target/armv7-unknown-linux-musleabihf/release/randal pi:/srv
 
-ssh pi "sudo /bin/systemctl start randal"
+ssh pi "sudo systemctl start randal"

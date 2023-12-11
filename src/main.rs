@@ -1,4 +1,6 @@
 use axum::{
+    http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Extension, Router,
 };
@@ -13,10 +15,11 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(root))
-        .route("/flip_light", post(flip_light_state))
+        .route("/flip_light", post(flip_light))
+        .fallback(handle_404)
         .layer(Extension(db));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:5227").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:5779").await.unwrap();
 
     axum::serve(listener, app).await.unwrap();
 }
@@ -49,7 +52,7 @@ fn sensor_loop(db: Db) {
         } else {
             pin.set_low();
         }
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
@@ -57,7 +60,11 @@ async fn root() -> &'static str {
     "randal is alive!"
 }
 
-async fn flip_light_state(db: Extension<Db>) -> &'static str {
+async fn handle_404() -> impl IntoResponse {
+    (StatusCode::NOT_FOUND, "nothing to see here")
+}
+
+async fn flip_light(db: Extension<Db>) -> &'static str {
     if let Ok(light_state) = db.get("light_state") {
         if let Some(light_state) = light_state {
             if light_state == "on" {

@@ -1,0 +1,11 @@
+[Unit]
+Description=randal
+After=multi-user.target
+
+[Service]
+ExecStart=/srv/randal
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
