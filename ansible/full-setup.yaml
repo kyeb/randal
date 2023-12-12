@@ -1,0 +1,54 @@
+- name: Full setup
+  hosts: pi
+  become: true
+
+  tasks:
+  - name: Update apt cache
+    apt:
+      update_cache: yes
+
+  - name: Install various needed apt packages
+    apt:
+      update_cache: yes
+      pkg:
+      - git
+      - nginx
+      - zsh
+
+  - name: Set shell to ZSH
+    command: usermod --shell /bin/zsh kyeb
+    changed_when: false
+  
+  - name: Install oh-my-zsh
+    become: yes
+    become_user: kyeb
+    shell: sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+    args:
+      creates: ~/.oh-my-zsh
+
+  - name: Clone kyeb dotfiles
+    become: yes
+    become_user: kyeb
+    git:
+      repo: https://github.com/kyeb/dotfiles.git
+      dest: /home/kyeb/.dotfiles
+
+  - name: Install dotfiles
+    become: yes
+    become_user: kyeb
+    shell: ~/.dotfiles/install
+    changed_when: false
+
+  - name: Install nice-to-have apt packages
+    apt:
+      update_cache: yes
+      pkg:
+      - vim
+      - neovim
+
+  - name: Enable nginx service
+    systemd:
+      name: nginx
+      enabled: yes
+      state: started
+  

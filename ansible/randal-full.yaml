@@ -1,0 +1,46 @@
+- name: Full randal setup
+  hosts: pi
+  become: true
+
+  tasks:
+  - name: Update nginx config
+    copy:
+      src: templates/nginx.conf
+      dest: /etc/nginx/sites-available/randal
+      owner: root
+      group: root
+      mode: 0644
+  
+  - name: Enable nginx config
+    file:
+      src: /etc/nginx/sites-available/randal
+      dest: /etc/nginx/sites-enabled/randal
+      state: link
+  
+  - name: Restart nginx
+    systemd:
+      name: nginx
+      state: restarted
+      enabled: yes
+  
+  - name: Update randal config
+    copy:
+      src: templates/randal.service
+      dest: /etc/systemd/system/randal.service
+      owner: root
+      group: root
+      mode: 0644
+  
+  - name: Update randal binary
+    copy:
+      src: ../target/armv7-unknown-linux-musleabihf/release/randal
+      dest: /srv
+      owner: root
+      group: root
+      mode: 0755
+  
+  - name: Restart randal
+    systemd:
+      name: randal
+      state: restarted
+      enabled: yes

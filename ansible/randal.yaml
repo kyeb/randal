@@ -1,0 +1,18 @@
+- name: Binary-only randal redeploy
+  hosts: pi
+  become: true
+
+  tasks:
+  - name: Update randal binary
+    copy:
+      src: ../target/armv7-unknown-linux-musleabihf/release/randal
+      dest: /srv
+      owner: root
+      group: root
+      mode: 0755
+  
+  - name: Restart randal
+    systemd:
+      name: randal
+      state: restarted
+      enabled: yes
