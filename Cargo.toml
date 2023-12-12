@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.7.2"
-rppal = "0.15.0"
+mpu9250 = "0.25.0"
+rppal = { version = "0.15.0", features = ["hal"] }
 sled = "0.34.7"
 tokio = { version = "1.35.0", features = ["full"] }

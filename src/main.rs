@@ -4,14 +4,18 @@ use axum::{
     routing::{get, post},
     Extension, Router,
 };
-use rppal::gpio::Gpio;
+use mpu9250::Mpu9250;
+use rppal::{
+    gpio::Gpio,
+    spi::{Bus, Mode, SlaveSelect, Spi},
+};
 use sled::Db;
 
 #[tokio::main]
 async fn main() {
     let db = init_db();
     let db_clone = db.clone();
-    tokio::task::spawn_blocking(|| sensor_loop(db_clone));
+    tokio::task::spawn_blocking(|| hardware_loop(db_clone));
 
     let app = Router::new()
         .route("/", get(root))
@@ -37,22 +41,50 @@ fn init_db() -> sled::Db {
     }
 }
 
-fn sensor_loop(db: Db) {
+fn hardware_loop(db: Db) {
     let gpio = Gpio::new().unwrap();
 
-    let mut pin = gpio.get(21).unwrap().into_output();
+    // if this works on the first try i will literally drop my jaw to the floor
+    let mut led_pin = gpio.get(21).unwrap().into_output();
+    let ncs_pin = gpio.get(8).unwrap().into_output();
+    let mut delay = rppal::hal::Delay::new();
+
+    // Mode3: CPOL 1, CPHA 1 (based on mpu9250::MODE)
+    let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 1_000_000, Mode::Mode3);
+    if spi.is_err() {
+        println!("Failed to initialize SPI: {:?}", spi.err().unwrap());
+        return;
+    }
+    let spi = spi.unwrap();
+
+    let mpu = Mpu9250::imu_default(spi, ncs_pin, &mut delay);
+
+    if mpu.is_err() {
+        println!("Failed to initialize MPU9250: {:?}", mpu.err().unwrap());
+        return;
+    }
+
+    let mut mpu = mpu.unwrap();
 
     loop {
-        if let Ok(Some(light_state)) = db.get("light_state") {
-            if light_state == "on" {
-                pin.set_high();
-            } else {
-                pin.set_low();
-            }
+        // if let Ok(Some(light_state)) = db.get("light_state") {
+        //     if light_state == "on" {
+        //         led_pin.set_high();
+        //     } else {
+        //         led_pin.set_low();
+        //     }
+        // } else {
+        //     led_pin.set_low();
+        // }
+
+        let data = mpu.all::<[f32; 3]>().unwrap();
+        if data.accel[2] < -5.0 {
+            led_pin.set_high();
         } else {
-            pin.set_low();
+            led_pin.set_low();
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
     }
 }
 
