@@ -20,6 +20,9 @@ async fn main() {
     let app = Router::new()
         .route("/", get(root))
         .route("/flip_light", post(flip_light))
+        .route("/forward", post(forward))
+        .route("/backward", post(backward))
+        .route("/stop", post(stop))
         .fallback(handle_404)
         .layer(Extension(db));
 
@@ -42,10 +45,13 @@ fn init_db() -> sled::Db {
 }
 
 fn hardware_loop(db: Db) {
-    let gpio = Gpio::new().unwrap();
+    let _ = db.insert("motor_state", "off");
 
-    // if this works on the first try i will literally drop my jaw to the floor
-    let mut led_pin = gpio.get(21).unwrap().into_output();
+    let gpio = Gpio::new().unwrap();
+    let mut motor1 = gpio.get(20).unwrap().into_output();
+    let mut motor2 = gpio.get(21).unwrap().into_output();
+
+    // i still can barely believe it's this easy to set up the SPI
     let ncs_pin = gpio.get(8).unwrap().into_output();
     let mut delay = rppal::hal::Delay::new();
 
@@ -67,24 +73,23 @@ fn hardware_loop(db: Db) {
     let mut mpu = mpu.unwrap();
 
     loop {
-        // if let Ok(Some(light_state)) = db.get("light_state") {
-        //     if light_state == "on" {
-        //         led_pin.set_high();
-        //     } else {
-        //         led_pin.set_low();
-        //     }
-        // } else {
-        //     led_pin.set_low();
-        // }
-
-        let data = mpu.all::<[f32; 3]>().unwrap();
-        if data.accel[2] < -5.0 {
-            led_pin.set_high();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if let Ok(Some(motor_state)) = db.get("motor_state") {
+            if motor_state == "forward" {
+                motor1.set_low();
+                motor2.set_high();
+            } else if motor_state == "backward" {
+                motor1.set_high();
+                motor2.set_low();
+            } else {
+                motor1.set_low();
+                motor2.set_low();
+            }
         } else {
-            led_pin.set_low();
+            println!("Failed to get motor state");
+            motor1.set_low();
+            motor2.set_low();
         }
-
-        std::thread::sleep(std::time::Duration::from_millis(1000));
     }
 }
 
@@ -113,4 +118,19 @@ async fn flip_light(db: Extension<Db>) -> &'static str {
     } else {
         return "failed to get light state";
     }
+}
+
+async fn forward(db: Extension<Db>) -> &'static str {
+    db.insert("motor_state", "forward").unwrap();
+    "success: motor flipped to forward"
+}
+
+async fn backward(db: Extension<Db>) -> &'static str {
+    db.insert("motor_state", "backward").unwrap();
+    "success: motor flipped to backward"
+}
+
+async fn stop(db: Extension<Db>) -> &'static str {
+    db.insert("motor_state", "off").unwrap();
+    "success: motor flipped to off"
 }
