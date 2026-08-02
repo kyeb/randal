@@ -130,6 +130,7 @@ impl JsonLine {
                 sys::uart_write_bytes(0, self.buf.as_ptr() as *const _, self.buf.len());
             }
         }
+        crate::wifi::telem_send(self.buf.as_str());
     }
 }
 

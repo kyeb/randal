@@ -3,10 +3,11 @@
 # requires-python = ">=3.12"
 # dependencies = ["pyserial", "websockets"]
 # ///
-"""IMU WebSocket server — reads serial JSONL and broadcasts to clients.
+"""IMU WebSocket server — reads robot JSONL (serial or TCP) and broadcasts to clients.
 
 Usage:
-    ./scripts/bridge.py [PORT]
+    ./scripts/bridge.py [PORT]            # serial (default /dev/cu.usbserial-0001)
+    ./scripts/bridge.py tcp:<ip>[:port]   # WiFi TCP (default port 3333)
 
 Broadcasts IMU data via WebSocket on ws://localhost:8080/ws.
 Data is saved to data/<timestamp>.jsonl for later analysis.
@@ -77,15 +78,21 @@ async def broadcast(data: str):
         websockets.broadcast(clients, data)
 
 
+def open_log():
+    # Open only after a successful connection — opening before caused a new
+    # empty file per 2s reconnect retry (543k zero-byte files over 3 months)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = Path(__file__).parent.parent / "data" / f"{timestamp}.jsonl"
+    f = open(log_path, "a")
+    print(f"Logging to {log_path}")
+    return f
+
+
 async def serial_reader(port: str, baud: int):
     global log_file
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = Path(__file__).parent.parent / "data" / f"{timestamp}.jsonl"
-    log_file = open(log_path, "a")
-    print(f"Logging to {log_path}")
-
     ser = serial.Serial(port, baud, timeout=0.01)
+    log_file = open_log()
     print("Resetting ESP32...", end=" ", flush=True)
     ser.dtr = False
     ser.rts = True
@@ -131,15 +138,73 @@ async def serial_reader(port: str, baud: int):
         await broadcast(line)
 
 
+TCP_DEFAULT_PORT = 3333
+
+
+async def tcp_reader(host: str, tcp_port: int):
+    global log_file
+
+    reader, writer = await asyncio.open_connection(host, tcp_port)
+    log_file = open_log()
+    print(f"Connected to robot at {host}:{tcp_port}")
+    await broadcast(json.dumps({"bridge": "connected"}))
+    print(f"WebSocket: ws://localhost:{WEB_PORT}/ws")
+
+    try:
+        while True:
+            while not cmd_queue.empty():
+                cmd = cmd_queue.get_nowait()
+                writer.write((cmd + "\n").encode())
+                await writer.drain()
+
+            try:
+                line = await asyncio.wait_for(reader.readline(), timeout=0.05)
+            except asyncio.TimeoutError:
+                continue
+            if not line:
+                raise ConnectionError("robot closed connection")
+
+            line = line.decode("utf-8", errors="replace").strip()
+            if not line.startswith("{"):
+                if line:
+                    print(f"[log] {line}")
+                continue
+
+            try:
+                json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            log_file.write(line + "\n")
+            log_file.flush()
+
+            if capture_file:
+                capture_file.write(line + "\n")
+                capture_file.flush()
+
+            await broadcast(line)
+    finally:
+        writer.close()
+
+
 async def main(port=PORT):
     server = await serve(ws_handler, "0.0.0.0", WEB_PORT)
     print(f"WebSocket server on :{WEB_PORT}")
 
+    tcp_target = None
+    if port.startswith("tcp:"):
+        rest = port[4:]
+        host, _, p = rest.partition(":")
+        tcp_target = (host, int(p) if p else TCP_DEFAULT_PORT)
+
     while True:
         try:
-            await serial_reader(port, BAUD)
-        except serial.SerialException as e:
-            print(f"\nSerial error: {e}")
+            if tcp_target:
+                await tcp_reader(*tcp_target)
+            else:
+                await serial_reader(port, BAUD)
+        except (serial.SerialException, ConnectionError, OSError) as e:
+            print(f"\nLink error: {e}")
             await broadcast(json.dumps({"bridge": "disconnected"}))
             print("Reconnecting in 2s...")
             await asyncio.sleep(2)

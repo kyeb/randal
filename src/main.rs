@@ -5,13 +5,17 @@ mod estimator;
 mod imu;
 mod motors;
 mod types;
+mod wifi;
+mod wifi_secrets;
 
 use controller::Controller;
 use encoder::Encoder;
+use esp_idf_svc::hal::cpu::Core;
 use esp_idf_svc::hal::gpio::PinDriver;
 use esp_idf_svc::hal::i2c::{I2cConfig, I2cDriver};
 use esp_idf_svc::hal::ledc::{config::TimerConfig, LedcDriver, LedcTimerDriver};
 use esp_idf_svc::hal::prelude::*;
+use esp_idf_svc::hal::task::thread::ThreadSpawnConfiguration;
 use esp_idf_svc::sys;
 use log::info;
 use motors::Motors;
@@ -28,6 +32,10 @@ fn main() {
     esp_idf_svc::log::EspLogger::initialize_default();
 
     let peripherals = Peripherals::take().unwrap();
+
+    // WiFi + TCP server (all init off-thread; robot runs fine with no network).
+    // Returned receiver yields command bytes from the TCP client.
+    let tcp_cmd_rx = wifi::start(peripherals.modem);
 
     unsafe {
         // TX ring buffer of 4096 so telemetry writes with 0 timeout never
@@ -98,6 +106,22 @@ fn main() {
 
     info!("sock-robot ready. Commands: STOP, ENABLE, DISABLE, K1/K2/K3/K4/KYAW/THEQ/TVEL/TYAW/EFFORT <val>, LOG_FAST, LOG_SLOW, PRBS_ON, PRBS_OFF");
 
+    // Control loop runs in its own high-priority thread pinned to core 1 so
+    // WiFi-era tasks (default-priority pthreads, unpinned FreeRTOS tasks) can
+    // never preempt it. The main task just parks in join().
+    ThreadSpawnConfiguration {
+        name: Some(b"control\0"),
+        stack_size: 16 * 1024,
+        priority: 20,
+        pin_to_core: Some(Core::Core1),
+        ..Default::default()
+    }
+    .set()
+    .unwrap();
+
+    let control = thread::Builder::new()
+        .stack_size(16 * 1024)
+        .spawn(move || {
     let mut buf = [0u8; 128];
     let mut pos = 0usize;
     let mut buf_overflow = false;
@@ -133,8 +157,8 @@ fn main() {
     const CHIRP_DUR: f32 = 45.0;
 
     loop {
-        // Handle serial commands (non-blocking)
-        if let Some(byte) = comms::uart_read_byte() {
+        // Handle commands from serial or TCP (non-blocking, shared line buffer)
+        if let Some(byte) = comms::uart_read_byte().or_else(|| tcp_cmd_rx.try_recv().ok()) {
             if byte == b'\n' || byte == b'\r' {
                 if pos > 0 && !buf_overflow {
                     if let Ok(line) = core::str::from_utf8(&buf[..pos]) {
@@ -356,4 +380,8 @@ fn main() {
 
         thread::sleep(Duration::from_micros(500));
     }
+        })
+        .unwrap();
+
+    control.join().unwrap();
 }

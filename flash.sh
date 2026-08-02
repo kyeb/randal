@@ -9,7 +9,7 @@ if [ -n "$bridge_pids" ]; then
     sleep 1
 fi
 
-cargo espflash flash -B 1500000 "$@"
+cargo espflash flash -B 1500000 --partition-table partitions.csv "$@"
 flash_exit=$?
 
 # Restart bridge after successful flash
