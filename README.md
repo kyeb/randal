@@ -1,6 +1,6 @@
 # sock-robot
 
-Segway-style self-balancing two-wheel robot. ESP32 + Rust firmware, React dashboard for live telemetry and LQR tuning.
+Segway-style self-balancing two-wheel robot. ESP32 + Rust firmware, React dashboard for live telemetry and LQR tuning. Battery-powered and wireless: telemetry/commands over WiFi TCP (USB serial as wired fallback).
 
 ## Hardware
 
@@ -26,18 +26,22 @@ Encoder Vcc → 3V3, IMU Vcc → 3V3, all GND → common ground.
 ## Commands
 
 ```bash
-# Build and flash
+# Build and flash (USB; uses partitions.csv, kills/restarts bridge as needed)
 ./flash.sh
 
 # Run dashboard (two terminals)
-scripts/bridge.py          # WebSocket bridge (serial → ws://localhost:8080)
-cd dashboard && pnpm dev   # Dashboard at http://localhost:3000
+scripts/bridge.py tcp:<robot-ip>   # WiFi (robot serves TCP on :3333)
+scripts/bridge.py                  # or USB serial fallback
+cd dashboard && pnpm dev           # Dashboard at http://localhost:3000
 
 # Send commands / inspect live telemetry
 scripts/cmd.py ENABLE
 scripts/cmd.py K1 1.0
+scripts/cmd.py watch 10    # live 1Hz samples
 scripts/cmd.py ctrlrun     # analyze most recent controller-on run
 ```
+
+WiFi credentials: copy `src/wifi_secrets.example.rs` to `src/wifi_secrets.rs` (gitignored). The robot logs its IP over serial at boot; give it a static DHCP lease. On TCP client disconnect the firmware zeroes TVEL/TYAW; balancing never depends on the link.
 
 ## Sign conventions
 

@@ -1,5 +1,7 @@
 # 200 Hz Tuning Log
 
+> **Historical:** this covers the cascaded-PID era (pre-LQR migration, April 2026). Kept for the observational rules at the bottom, which still apply. Current-era notes: `data/lqr_tuning_log.md`.
+
 Trials on the current firmware state: 200 Hz control loop (CONFIG_FREERTOS_HZ=1000, thread::sleep(500µs)), standard filter TCs (COMP_TC_S=0.495, GYRO_FILTER_TC_S=0.062, VEL_FILTER_TC_S=0.045), non-blocking UART @ 921600.
 
 Metrics from `scripts/cmd.py pidrun`:
