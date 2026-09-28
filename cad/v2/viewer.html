@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Randal Frame Viewer</title>
+<style>
+  :root { --bg:#f4f5f7; --panel:#ffffffe6; --ink:#1d2127; --muted:#667080; --line:#d9dde3; --accent:#2f6fdd; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#15181c; --panel:#1f242bf0; --ink:#e7eaee; --muted:#9aa4b2; --line:#333a44; --accent:#6aa0ff; } }
+  :root[data-theme="dark"] { --bg:#15181c; --panel:#1f242bf0; --ink:#e7eaee; --muted:#9aa4b2; --line:#333a44; --accent:#6aa0ff; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:13px/1.4 -apple-system, system-ui, sans-serif; overflow:hidden; }
+  #c { position:fixed; inset:0; width:100vw; height:100vh; display:block; }
+  .panel { position:fixed; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; backdrop-filter:blur(6px); }
+  #parts { top:12px; left:12px; max-height:calc(100% - 24px); overflow:auto; min-width:170px; }
+  #stats { top:12px; right:12px; width:250px; }
+  #views { bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:6px; padding:6px; flex-wrap:wrap; justify-content:center; }
+  h2 { font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:0 0 6px; font-weight:600; }
+  label { display:flex; align-items:center; gap:6px; padding:2px 0; cursor:pointer; white-space:nowrap; }
+  .sw { width:10px; height:10px; border-radius:2px; border:1px solid #0003; }
+  button { background:transparent; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; }
+  button:hover, button.on { border-color:var(--accent); color:var(--accent); }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:2px 0; } td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+  #hint { color:var(--muted); margin-top:8px; font-size:12px; }
+  @media (max-width: 640px) { #stats { display:none; } #parts { max-height:40%; } }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="parts" class="panel"><h2>Parts</h2><div id="list">loading…</div>
+  <div style="margin-top:8px"><label><input type="checkbox" id="xray"> X-ray frame</label><label><input type="checkbox" id="edges" checked> Edges</label></div>
+</div>
+<div id="stats" class="panel"><h2>Numbers</h2><table id="tbl"></table><div id="hint">Drag to orbit · right-drag to pan · scroll to zoom</div></div>
+<div id="views" class="panel">
+  <button data-v="iso">Iso</button><button data-v="front">Front</button><button data-v="side">Side</button>
+  <button data-v="top">Top</button><button data-v="back">Back</button><button data-v="print">Print bed</button>
+</div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
+const scene = new THREE.Scene();
+const persp = new THREE.PerspectiveCamera(30, 1, 1, 10000);
+const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, -5000, 5000);
+for (const c of [persp, ortho]) c.up.set(0, 0, 1);
+let camera = persp;
+let controls = null;
+function makeControls() {
+  if (controls) controls.dispose();
+  controls = new OrbitControls(camera, canvas);
+  controls.enableDamping = true; controls.dampingFactor = 0.15;
+  controls.addEventListener("change", render);
+}
+makeControls();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9098a8, 2.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2.2); sun.position.set(300, -400, 600); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 1.0); fill.position.set(-400, 300, 200); scene.add(fill);
+const front = new THREE.DirectionalLight(0xffffff, 0.8); front.position.set(600, 100, 150); scene.add(front);
+const back = new THREE.DirectionalLight(0xffffff, 1.4); back.position.set(-600, -200, 300); scene.add(back);
+
+const grid = new THREE.GridHelper(400, 40, 0x888888, 0xcccccc);
+grid.rotation.x = Math.PI / 2; grid.material.transparent = true; grid.material.opacity = 0.35;
+scene.add(grid);
+// X1 Carbon bed, shown only in the print view
+const bed = new THREE.Group();
+{
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(256, 256), new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.9 }));
+  plate.position.z = -0.2; bed.add(plate);
+  const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(256, 256)), new THREE.LineBasicMaterial({ color: 0x6aa0ff }));
+  bed.add(edge);
+  bed.visible = false; scene.add(bed);
+}
+function themeBg() { scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()); if (controls) render(); }
+themeBg(); matchMedia("(prefers-color-scheme: dark)").addEventListener("change", themeBg);
+
+const root = new THREE.Group(); scene.add(root);
+const groups = {};           // label -> Object3D
+const edgeLines = [];
+let frameObj = null;
+
+const labelOf = o => { while (o && !(o.name && o.name !== "randal" && o.parent && o.parent.name === "randal")) o = o.parent; return o; };
+
+new GLTFLoader().load("out/assembly.glb?" + Date.now(), gltf => {
+  const g = gltf.scene;
+  root.add(g); g.updateMatrixWorld(true);
+  // normalise whatever units/up-axis the exporter used: model is ~234 mm tall (Z) and ~56 mm deep (X)
+  let sz = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+  const k = 234 / Math.max(sz.x, sz.y, sz.z);
+  g.scale.setScalar(Math.abs(k - 1) < 0.2 ? 1 : k);
+  if (sz.y > sz.z * 1.05) g.rotation.x = Math.PI / 2;
+  g.updateMatrixWorld(true);
+  window.__bbox = new THREE.Box3().setFromObject(g);
+  g.traverse(o => {
+    if (!o.isMesh) return;
+    o.material = o.material.clone();
+    o.material.side = THREE.DoubleSide;
+    const top = labelOf(o); const name = top ? top.name : "part";
+    (groups[name] ||= new Set()).add(o);
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 30), new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
+    o.add(e); edgeLines.push(e);
+  });
+  frameObj = groups["frame"];
+  buildList();
+  view("iso");
+});
+
+function buildList() {
+  const list = document.getElementById("list"); list.innerHTML = "";
+  for (const [name, meshes] of Object.entries(groups)) {
+    const m = [...meshes][0].material;
+    const row = document.createElement("label");
+    row.innerHTML = `<input type="checkbox" checked data-n="${name}"><span class="sw" style="background:#${m.color.getHexString()}"></span>${name}`;
+    row.querySelector("input").onchange = ev => { if (current !== "print") meshes.forEach(x => x.visible = ev.target.checked); render(); };
+    list.appendChild(row);
+  }
+}
+document.getElementById("xray").onchange = ev => { frameObj && frameObj.forEach(m => { m.material.transparent = ev.target.checked; m.material.opacity = ev.target.checked ? 0.25 : 1; m.material.depthWrite = !ev.target.checked; }); render(); };
+document.getElementById("edges").onchange = ev => { edgeLines.forEach(e => e.visible = ev.target.checked); render(); };
+
+let current = "iso";
+function modelBox(onlyFrame) {
+  const box = new THREE.Box3();
+  root.updateMatrixWorld(true);
+  for (const [name, meshes] of Object.entries(groups)) {
+    if (onlyFrame && name !== "frame") continue;
+    meshes.forEach(m => { if (m.visible || onlyFrame) box.expandByObject(m); });
+  }
+  return box;
+}
+function setPrintMode(on) {
+  bed.visible = on; grid.visible = !on;
+  for (const [name, meshes] of Object.entries(groups)) {
+    const box = document.querySelector(`#list input[data-n="${name}"]`);
+    meshes.forEach(m => m.visible = on ? name === "frame" : (box ? box.checked : true));
+  }
+  if (on) { root.rotation.set(0, -Math.PI / 2, 0); root.position.set(0, 0, 0); root.updateMatrixWorld(true);
+            const b = modelBox(true), c = b.getCenter(new THREE.Vector3());
+            root.position.set(-c.x, -c.y, -b.min.z); }
+  else { root.rotation.set(0, 0, 0); root.position.set(0, 0, 0); }
+}
+function view(v) {
+  current = v;
+  setPrintMode(v === "print");
+  const box = modelBox(v === "print");
+  const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+  const dirs = { iso: [1, -0.9, 0.62], front: [1, 0, 0], side: [0, -1, 0], top: [0, 0, 1], back: [-1, 0, 0], print: [0.75, -1, 1.1] };
+  const dir = new THREE.Vector3(...dirs[v]).normalize();
+  const aspect = innerWidth / innerHeight;
+  const axisView = ["front", "side", "top", "back"].includes(v);
+  camera = axisView ? ortho : persp;
+  // visible extent perpendicular to the view direction
+  const halfW = { front: size.y, back: size.y, side: size.x, top: size.y }[v] / 2 || size.length() / 2;
+  const halfH = { front: size.z, back: size.z, side: size.z, top: size.x }[v] / 2 || size.length() / 2;
+  const margin = 1.18;
+  if (axisView) {
+    const hh = Math.max(halfH, halfW / aspect) * margin;
+    ortho.left = -hh * aspect; ortho.right = hh * aspect; ortho.top = hh; ortho.bottom = -hh;
+    ortho.zoom = 1; ortho.updateProjectionMatrix();
+    ortho.up.set(v === "top" ? 1 : 0, 0, v === "top" ? 0 : 1);
+    ortho.position.copy(c).addScaledVector(dir, 1000);
+  } else {
+    persp.aspect = aspect; persp.updateProjectionMatrix();
+    const r = size.length() / 2 * (v === "print" ? 1.35 : margin);
+    const fov = THREE.MathUtils.degToRad(persp.fov);
+    const dist = r / Math.sin(Math.min(fov, 2 * Math.atan(Math.tan(fov / 2) * aspect)) / 2);
+    persp.up.set(0, 0, 1);
+    persp.position.copy(c).addScaledVector(dir, dist);
+  }
+  makeControls();
+  controls.target.copy(c);
+  camera.lookAt(c);
+  controls.update();
+  render();
+  document.querySelectorAll("#views button").forEach(b => b.classList.toggle("on", b.dataset.v === v));
+}
+function render() { renderer.render(scene, camera); }
+document.querySelectorAll("#views button").forEach(b => b.onclick = () => view(b.dataset.v));
+
+fetch("out/summary.json?" + Date.now()).then(r => r.json()).then(s => {
+  const rows = [
+    ["Total mass", `${s.mass_g} g`],
+    ["CoM above axle", `${s.com_above_axle_mm} mm`],
+    ["CoM ahead of axle", `${s.com_ahead_of_axle_mm} mm`],
+    ["Rest trim", `${s.rest_trim_deg}°`],
+    ["Frame print", `${s.print_footprint_mm[0]}×${s.print_footprint_mm[1]}, ${s.print_footprint_mm[2]} tall`],
+    ["Width over wheels", `${s.width_over_wheels_mm} mm`],
+    ["Overall height", `${s.overall_height_mm} mm`],
+  ];
+  document.getElementById("tbl").innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("");
+}).catch(() => {});
+
+function resize() { renderer.setSize(innerWidth, innerHeight, false); if (Object.keys(groups).length) view(current); else render(); }
+addEventListener("resize", resize); resize();
+renderer.setAnimationLoop(() => { if (controls.enableDamping) controls.update(); });
+window.__view = view;
+</script>
+</body>
+</html>

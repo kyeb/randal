@@ -6,3 +6,5 @@
 /dashboard/node_modules
 /dashboard/dist
 /src/wifi_secrets.rs
+/cad/*/out/
+__pycache__/
