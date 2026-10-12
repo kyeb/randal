@@ -31,6 +31,7 @@ BRK_ROWS = 31.2        # base-leg hole rows, centred on the gearbox axis
 BRK_HOLE0, BRK_PITCH = 8.4, 6.35   # first base hole from the face plate's outer face, then 1/4" pitch
 CYTRON = (84.5, 62.0, 78.5, 56.0)        # board w, h, hole pitch w, h — pitch measured off the v1 frame (manual says ~78.74 × ~55.88)
 BREADBOARD = (82.5, 54.6, 8.5)           # half-size 400-point (standard dims, not measured)
+BB_TAPE = 1.5                            # its worn adhesive foam stays on (it holds the clips in)
 IMU = (25.4, 25.4, 20.32)                # SparkFun 1"x1" Qwiic, holes on 0.8"
 BATTERY = (46.3, 155.3, 24.0)            # soft pack, x × y × z as it lies on the deck
 PDB = (36.0, 50.0, 30.5)                 # Matek PDB-XT60, 30.5 mm hole square, M3
@@ -146,6 +147,10 @@ def build_frame():
     ch = XT60[0] / 2 + 1
     for xa, xb in ((X0, -ch), (ch, X1 - T_CAP)):     # front block stops short of the clip's front skirt
         frame += ybox(-Y_IN - 1, BAT_Y0, Z_TOP1 - 1, Z_LIP, xa, xb)
+    # the front block's underside hangs over the lead channel, anchored only on the wall: 45° so it prints unsupported
+    w = BAT_Y0 + Y_IN
+    wedge = Polygon((ch - 0.01, -Y_IN), (ch + w, BAT_Y0 + 0.01), (ch - 0.01, BAT_Y0 + 0.01), align=None)
+    frame -= extrude(Plane.XY.offset(Z_TOP1 - 1.01) * wedge, Z_LIP - Z_TOP1 + 1.02)
 
     # --- backplane (first layers on the bed), rises above the deck as the back lip
     frame += ybox(-Y_IN - 1, Y_IN + 1, Z_RAIL1 - 1, Z_LIP, X0, XB)
@@ -156,7 +161,7 @@ def build_frame():
 
     # breadboard rails: a ledge under the full length, lips over the front face on the left BB_GRIP mm only,
     # so the board slides right ~BB_GRIP mm to come free (its tape is worn out). 2 mm lips print as a short overhang.
-    t_bb, c = BREADBOARD[2] + 0.4, 0.4
+    t_bb, c = BREADBOARD[2] + BB_TAPE + 0.4, 0.4
     y_end = BB_Y0 + BREADBOARD[0]
     y_stop = BB_Y0 - 0.3
     frame += ybox(y_stop - 3, y_end + 3.5, BB_Z0 - 3, BB_Z0, XB - 1, XB + t_bb)            # ledge
@@ -353,8 +358,8 @@ def assembly():
     bat_z = Z_TOP1 + BATTERY[2] / 2
     bat_x = XB + BAT_CLEAR + BATTERY[0] / 2
     add(Pos(bat_x, BAT_SHIFT, bat_z) * Box(*BATTERY), "battery", "#e08a2e", 355)
-    add(board(BB_Y, BB_Z0 + BREADBOARD[1] / 2, BREADBOARD[0], BREADBOARD[1], BREADBOARD[2], XB), "breadboard", "#f2f0e8", 30)
-    add(board(BB_Y, BB_Z0 + BREADBOARD[1] / 2, 51, 28, 13, XB + BREADBOARD[2]), "esp32", "#1d3b6e", 12)
+    add(board(BB_Y, BB_Z0 + BREADBOARD[1] / 2, BREADBOARD[0], BREADBOARD[1], BREADBOARD[2], XB + BB_TAPE), "breadboard", "#f2f0e8", 30)
+    add(board(BB_Y, BB_Z0 + BREADBOARD[1] / 2, 51, 28, 13, XB + BB_TAPE + BREADBOARD[2]), "esp32", "#1d3b6e", 12)
     cy = board(CY_Y, CY_Z, CYTRON[0], CYTRON[1], 1.6, XB + 5)
     cy += Pos(XB + 5 + 1.6 + 6, CY_Y - CYTRON[0] / 2 + 5, CY_Z) * Box(12, 10, 46)   # terminal block
     add(cy, "cytron", "#1f1f1f", 34)

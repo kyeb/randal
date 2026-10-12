@@ -40,4 +40,4 @@ uv run frame.py && uv run audit.py
   backplane's rear face to slide it back out.
 - Motor ribbons come up through the two floor slots above their encoder caps (right motor front, left motor back).
 - Tuning knobs if the first print is off: `DETENT_L` / `DETENT_H` (click force), `INSERT_M3` (insert bore),
-  `BAT_CLEAR` (pocket length).
+  `BAT_CLEAR` (pocket length), `BB_TAPE` (breadboard slot depth for its foam backing).
