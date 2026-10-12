@@ -435,10 +435,11 @@ def main():
     print("frame bbox", bb.size, "valid", frame.is_valid, "volume cm3", round(frame.volume / 1000, 1))
 
     export_step(frame, OUT / "frame.step")
-    export_stl(frame, OUT / "frame.stl", tolerance=0.05, angular_tolerance=0.2)
+    # STLs are written in print orientation: frame backplane down (+X up), clip top plate down
+    export_stl(frame.rotate(Axis.Y, -90), OUT / "frame.stl", tolerance=0.05, angular_tolerance=0.2)
     clip = next(p[0] for p in parts if p[1] == "battery clip")
     export_step(clip, OUT / "battery_clip.step")
-    export_stl(clip, OUT / "battery_clip.stl", tolerance=0.05, angular_tolerance=0.2)
+    export_stl(clip.rotate(Axis.X, 180), OUT / "battery_clip.stl", tolerance=0.05, angular_tolerance=0.2)
     asm = Compound(children=[p[0] for p in parts], label="randal")
     export_gltf(asm, str(OUT / "assembly.glb"), binary=True, linear_deflection=0.1, angular_deflection=0.3)
 
